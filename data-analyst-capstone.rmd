@@ -1,0 +1,577 @@
+---
+title: 'Case Study: Bellabeat Fitness App'
+author: "Rafael Fraga - rafaelfraga.github.io"
+code_download: yes
+output:
+  html_document: 
+    df_print: default
+    toc: yes
+  html_notebook:
+    theme: simplex
+---
+
+## Business Scenario
+
+Bellabeat is a successful small company, but they have the potential to become a larger player in the global smart device market. Urška Sršen, cofounder and Chief Creative Officer of Bellabeat, believes that analyzing smart device fitness data could help unlock new growth opportunities for the company. You have been asked to focus on one of Bellabeat's products and analyze smart device data to gain insight into how consumers are using their smart devices. The insights you discover will then help guide marketing strategy for the company. You will present your analysis to the Bellabeat executive team along with your high-level recommendations for Bellabeat's marketing strategy.
+
+## Questions to be answered by this analysis
+
+1.  What are some trends in smart device usage?\
+2.  How could these trends apply to Bellabeat customers?\
+3.  How could these trends help influence Bellabeat marketing strategy?\
+
+## Business Task
+
+Identify growth opportunities for a product line according to the analysis of the customers trends in device usage.
+
+## Disclaimer
+
+Please note that this datasets comes from the [Kaggle's Fitbit tracker dataset](https://www.kaggle.com/arashnic/fitbit), and it lacks necessary information to optimize this task. For example, there's no metadata accompanying this dataset. The number of respondents is limited in number, and very useful qualitative information such as age, gender, type of workout, device/app used, and also more metrics such a information necessary to assess quality of sleep are missing. \
+
+We will try to extrapolate a conclusion from the limited data available, **but would be highly recommended to expand this data gathering effort.** 
+
+## Importing Libraries
+
+```{r Importing Libraries, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+library(GGally)
+library(skimr)
+library(calendR)
+```
+
+## Importing datasets
+
+```{r}
+#setting work directory
+wd <- getwd()
+```
+
+We will first analyze data gathered with the granularity of 1 day (24hrs). This will be in order to check if the information at it's highest level provides enough information for further investigation.
+
+```{r message=FALSE, warning=FALSE}
+sleep_daily <- read_csv(paste(wd, "/fitbase-data/sleepDay_merged.csv", sep = ""))
+weight_log <- read_csv(paste( wd, "/fitbase-data/weightLogInfo_merged.csv", sep=""))
+activity_daily <- read_csv(paste (wd, "/fitbase-data/dailyActivity_merged.csv", sep=""))
+calories_daily <- read_csv(paste (wd, "/fitbase-data/dailyCalories_merged.csv", sep=""))
+steps_daily <- read_csv(paste (wd, "/fitbase-data/dailySteps_merged.csv", sep=""))
+```
+
+---
+
+## Data cleaning and transformation {.tabset}
+
+### Daily Activity
+
+```{r}
+glimpse(activity_daily)
+```
+
+We can see that Activity Date was recognized as a String, this will probably occur to every Date related column for the other frames.
+
+```{r }
+activity_daily <- activity_daily %>% 
+  mutate(ActivityDate = lubridate::mdy(ActivityDate),  Id = as.factor(Id))
+
+```
+
+Let's see how many users participated in this dataset
+
+```{r}
+activity_users <- unique(activity_daily$Id)
+activity_unique_users <- length(activity_users)
+
+print(activity_unique_users)
+```
+
+### Sleep logs
+
+```{r}
+glimpse(sleep_daily)
+```
+
+Converting Sleepday to date type:
+
+```{r}
+sleep_daily <- sleep_daily %>% 
+  mutate(SleepDay = lubridate::mdy_hms(SleepDay), Id = as.factor(Id))
+```
+
+Checking for NA values
+
+```{r}
+na_count <- sapply(sleep_daily, function(x) sum(is.na(x)))
+print(na_count)
+```
+
+```{r}
+sleep_users <- unique(sleep_daily$Id)
+sleep_unique_users <- length(sleep_users)
+print(sleep_unique_users)
+```
+
+### Weight Log
+
+```{r}
+glimpse(weight_log)
+
+```
+
+Converting Date to date-time type:
+
+```{r}
+
+weight_log <- weight_log %>% 
+  mutate(Date = lubridate::mdy_hms(Date, tz=Sys.timezone()), Id = as.factor(Id))
+
+weight_log$Date <- round_date(weight_log$Date, "day")
+```
+
+Checking for NA values
+
+```{r}
+na_count <- sapply(weight_log, function(x) sum(is.na(x)))
+print(na_count)
+```
+
+We have only Logs for 2 values of body fat percentage, because of this this column is insignificant for the analysis and will be dropped.
+
+```{r}
+weight_log <-  weight_log %>%
+  select(-Fat)
+```
+
+Counting Unique users
+
+```{r}
+weight_users <- unique(weight_log$Id)
+weight_unique_users <- length(weight_users)
+print(weight_unique_users)
+```
+
+### Daily Steps
+
+```{r}
+glimpse(steps_daily)
+```
+
+Converting ActivityDay to date format.
+
+```{r}
+steps_daily <- steps_daily %>% 
+  mutate(ActivityDay  = lubridate::mdy(ActivityDay), Id = as.factor(Id))
+```
+
+Checking for NA values
+
+```{r}
+na_count <- sapply(steps_daily, function(x) sum(is.na(x)))
+print(na_count)
+```
+
+```{r}
+step_users <- unique(steps_daily$Id)
+step_unique_users <- length(step_users)
+print(step_unique_users)
+```
+
+---
+
+## Exploratory Data Analysis  {.tabset}
+
+> I will use the exploratory approach to data, firstly understanding the correlations of data and trying to find patterns trough questions. Then, we will try to apply this insights into a useful business action. 
+
+### Initial questions 
+
+At the beginning of this analysis, and research the domain subject, I already have some questions: \
+
+  **Does regular physical activity lead to better sleep?**\
+  **Is the userbase, in general, more sedentary or active?**\
+  **How related are regular physical activity, sleep and weight loss?**\
+
+---
+
+### Exploring subsets of participants 
+First we can look for which subset of users we can work. Since our databases don't necessarily contains the same set of unique IDs.
+
+```{r}
+#The subset of the users who submitted all of their daily data
+submitted_complete_data <- length(Reduce(intersect, list(weight_users, activity_users, sleep_users, step_users)))
+
+#Subset of users who submitted activity, sleep and step
+
+submitted_activity_sleep_steps <- length(Reduce(intersect, list(activity_users, sleep_users, step_users)))
+
+#Subset of users who submitted activity and sleep 
+
+submitted_activity_sleep <- length(Reduce(intersect, list(activity_users, sleep_users)))
+
+writeLines(paste0("Submitted all daily data: ", submitted_complete_data, " users\nSubmitted all data except weight: ", submitted_activity_sleep_steps, " users\nSubmitted only activity and sleep data: ", submitted_activity_sleep, " users") )
+
+```
+
+
+### Joining Dataframes to simplify workflow
+
+```{r}
+merged_sleep_activity_daily <- inner_join(activity_daily, sleep_daily, by = c("Id" = "Id", "ActivityDate" = "SleepDay"))
+merged_sleep_activity_daily <- mutate(merged_sleep_activity_daily, Id = as.factor(Id))
+head(merged_sleep_activity_daily)
+```
+
+
+
+```{r, skimr_digits = 0}
+options(scipen = 999)
+skim(merged_sleep_activity_daily)
+```
+
+
+### Question 1
+#### Is the userbase, in general, more sedentary or active?
+
+```{r }
+#counting the amount of users with more than 10k steps per day
+
+average_steps <- merged_sleep_activity_daily %>%
+  group_by(Id) %>% 
+  summarise(mean_steps_day = mean(TotalSteps, na.rm = TRUE))
+
+summary(average_steps$mean_steps_day)
+
+ 
+users_active <- filter(average_steps, mean_steps_day > 10000)
+users_active_percent <- (nrow(users_active)/nrow(average_steps))*100
+
+writeLines(paste0("\n Only ", nrow(users_active)," or " ,users_active_percent, " % of 'active' users (according to the OMS standards)"))
+```
+
+**Initially we can derive the following insights:**
+
+* The median steps per day for the users is **7994**.8, according to studies (TudorLocke & Bassett, 2004) this would be near the classification of **'Somewhat Active'**. 
+
+* In the same studies, it is classified as an 'Active' person, who accumulates a minimum of 10,000 steps/day. **Only 5 (20%) of the users are in this classification or better.** 
+
+
+```{r echo=FALSE}
+
+users_sedentary <- filter(average_steps, mean_steps_day < 5000)
+users_sedentary_percent <- (nrow(users_sedentary)/nrow(average_steps))*100
+
+writeLines(paste0("\n ", nrow(users_sedentary)," or " ,users_sedentary_percent, " % of 'sedentary' users (according to the OMS standards)"))
+
+```
+
+* On the other hand, **20% of the users are still sedentary**. This group can be focused, later we will focus on this group's metrics and see any relation between weight, sleep quality or calories. 
+
+* On average, **the users spend 799 minutes (13.3 hours) in 'sedentary' state trough the day.** Taking into consideration that their mean minutes asleep per day is 419 (6.98 hours), that leaves still 379 minutes or 6.3 hours of time with no activity. This is 1/4 of the day without moving, Bellabea app can prompt users to move and stretch regularly. As WHO would say in their guidelines for physical activity for adults **"Be active every day in as many ways as you can, your way".** 
+
+
+```{r}
+activity_type <- merged_sleep_activity_daily %>% 
+  select(Id, LightlyActiveMinutes, FairlyActiveMinutes, VeryActiveMinutes) %>% 
+  group_by(Id) %>% 
+  summarise_all(~mean(., na.rm = FALSE))
+
+summary(activity_type)
+```
+
+
+* Still in accordance with the WHO guidelines, the organization states: 
+
+> "Do at least 30 minutes of moderate-intensity physical activity on five or
+more days each week."
+
+* That would be sum of Fair and Active minutes of activity. The median activity per day, per user falls short by 6.74min (23.26min), and the mean supersedes it by 6.8min (36.8min). This disparity can be attributed by some outlier users who seem to dedicate a lot to Very intense activities for more than 25min a day. Because of this, we will take the median time in consideration. 
+
+> Bellabeat customers, in general, **do not surpass the minimum recommended physical activity time recommended by the WHO.**
+
+---
+
+### Question 2
+#### Does regular physical activity lead to better sleep?
+
+##### How to 'calculate' sleep quality?
+
+Some smart wearebles, such as [Xiaomi's Mi Band 6] (https://www.mi.com/uk/mi-smart-band-6/overview), can give to the user metrics such as sleep breathing score, time in REM sleep, and oxygen saturation levels. This information is not available in this dataset. So, we will measure the quality of sleep as: $SleepQuality = TotalMinutesAsleep / TotalTimeInBed$ and compare with the daily amount of steps and calories burned per day.
+
+```{r}
+#creating calculated column
+merged_sleep_activity_daily <- merged_sleep_activity_daily %>% 
+  mutate(
+    SleepQuality = TotalMinutesAsleep / TotalTimeInBed
+  )
+
+head(merged_sleep_activity_daily)
+```
+
+
+
+##### Visualizing general sleeping habits
+
+```{r}
+  summary(merged_sleep_activity_daily$SleepQuality)
+```
+
+* In general users spend between 4% and 8.9% of their time on the bed *probably* trying to sleep.\
+
+```{r}
+ggplot(data = merged_sleep_activity_daily, aes(x = TotalMinutesAsleep )) + geom_histogram(binwidth = 60, fill = 'dodgerblue4',col=I("white")) + scale_x_continuous(breaks=seq(from = 0, to = 900, by = 100)) + geom_vline(mapping = aes(xintercept = 420), color = 'chartreuse4', size = 2)
+
+```
+```{r}
+summary(merged_sleep_activity_daily$TotalMinutesAsleep)
+```
+
+* The green line, 420min or 7hrs, represents the minimum recommended by the Academy of Sleep Medicine (AASM) of time asleep. \
+
+
+
+
+```{r}
+
+primary_var <- "SleepQuality"
+pairs <- ggpairs(merged_sleep_activity_daily, columns = c(3,11,12,15,19))
+pvar_pos <- match(primary_var, pairs$xAxisLabels)
+plots <- lapply(1:pairs$ncol, function(j) getPlot(pairs, i = pvar_pos, j = j))
+ggmatrix(
+    plots,
+    nrow = 1,
+    ncol = pairs$ncol,
+    xAxisLabels = pairs$xAxisLabels,
+    yAxisLabels = primary_var
+
+) + theme_classic()
+#credit goes to user https://stackoverflow.com/users/7311767/stephen-rauch and https://stackoverflow.com/users/6938922/allen-baron
+```
+
+###### From this visualization we can conclude that, using this metric cited previously, there's no correlation between activity and SleepQuality.  
+
+> Since data on sleep quality is limited, I believe that is not productive to focus on sleep quality aspect for a business opportunity. 
+
+---
+
+### Question 3
+#### How correlated are regular physical activity, sleep and weight loss?
+##### Joining weight data
+```{r}
+full_daily_merged = inner_join(merged_sleep_activity_daily, weight_log, by = c("Id" = "Id", "ActivityDate" = "Date"))
+full_daily_merged$Id = as.factor(full_daily_merged$Id)
+print(n_unique(full_daily_merged$Id))
+```
+As we know, only 6 users reported complete data to this study. Given that our data is limited, we will extrapolate the conclusions for the userbase. **The recommendation still is to gather more data, for more precision and clarity.**
+
+---
+
+### Question 4
+#### What is the relation between sleep time, calories burned and steps taken vs RHR
+RHR: Resting Heart Rate
+
+#### Heartrate by second
+```{r}
+hearthrate <- read.csv(paste0(wd, "/fitbase-data/heartrate_seconds_merged.csv"))
+hearthrate <- hearthrate %>% 
+  mutate(Time = lubridate::mdy_hms(Time, tz=Sys.timezone()), Id = as.factor(Id))
+
+head(hearthrate)
+```
+#### Intensity by minute
+
+```{r}
+intensity <- read.csv(paste0(wd, "/fitbase-data/minuteIntensitiesNarrow_merged.csv"))
+
+intensity <- intensity %>% 
+  mutate(ActivityMinute = lubridate::mdy_hms(ActivityMinute, tz=Sys.timezone()), Id = as.factor(Id))
+
+head(intensity)
+```
+```{r}
+skim(hearthrate)
+```
+
+```{r}
+skim(intensity)
+```
+
+We will consider intensity = 0 as "resting".\
+
+#### Joining the dataframes
+
+```{r}
+merged_heartrate_activity_min <- inner_join(x=hearthrate, y=intensity, by=c("Id" = "Id", "Time" = "ActivityMinute"))
+head(merged_heartrate_activity_min)
+```
+TODO: Pegar media de batimentos por intensidade (1 ou 0)/por usuario, relacao de quantidade de exercicio (steps ou calorias com a media de resting heart rate de cada usuario)
+
+#### Calculating the average RHR for each user, by day. \
+```{r}
+user_avg_rhr <- merged_heartrate_activity_min %>%
+  subset(Intensity == 0) %>% 
+  mutate(Time = round_date(Time, "day")) %>% 
+  group_by(Id, Time) %>% 
+  summarise(daily_avg_rhr = mean(Value))
+
+head(user_avg_rhr)
+```
+
+Calculating RHR in general for each user\
+
+#### Classifying RHR for each user
+
+###### According to Harvard Heatlh Publishing: 
+
+> A normal heart rate is usually stated as 60 to 100 beats per minute. Slower than 60 is bradycardia ("slow heart"); faster than 100 is tachycardia ("fast heart"). But some experts believe that an ideal resting heart rate is closer to 50 to 70. 
+
+[Source](https://www.health.harvard.edu/heart-health/hows-your-heart-rate-and-why-it-matters)
+
+```{r}
+user_heartrate_info <- user_avg_rhr %>% 
+  group_by(Id) %>% 
+  summarise(rhr = mean(daily_avg_rhr)) %>% 
+  mutate(rhr_classification = case_when(
+    rhr < 50 | rhr > 100 ~ "Abnormal",
+    rhr > 70 ~ "At risk",
+    rhr > 50 & rhr < 70 ~ "Normal"
+    
+  ))
+  
+user_heartrate_info
+```
+
+
+#### Calculating mean stes, sleep, calories etc and sedentary minutes, sleep for each user\
+
+```{r}
+
+user_avg_activity_sleep <- merged_sleep_activity_daily %>% 
+  group_by(Id, ActivityDate)
+
+user_activy_sleep_info <- user_avg_activity_sleep %>% 
+  group_by(Id) %>% 
+  summarise_all(mean) 
+
+user_activy_sleep_info <-  user_activy_sleep_info %>% select(-ActivityDate)
+head(user_activy_sleep_info)
+```
+
+#### Joining user info dataframes\
+
+```{r}
+user_info <- inner_join(user_heartrate_info, user_activy_sleep_info, by = 'Id')
+user_info
+```
+
+We can derive conclusion from a subset of 12 users who submitted activity, sleep and heartrate data 
+
+#### Users in risk of cardiovascular diseases \
+
+According to a article from Mayo clinic about Cardiorespiratory Fitness (CRF) and Resting Heart Rate (RHR):\
+
+"Highest cardiorespiratory fitness (CRF) with lower mortality was found in individuals with a RHR <60 bpm. Similarly, participants with a higher RHR, >80 bpm, were at greater risk for both CVD and all-cause mortality when compared with RHR <60 bpm.".\
+
+Other sources (i.e Harvard medical publish) cite that a RHR higher than 70bpm already has increased risk of cardiovascular diseases. For this visualization we will use this more conservative metric.\
+
+```{r}
+ggplot(data = user_info, aes(x="", y=rhr_classification, fill=rhr_classification)) +
+  geom_bar(stat="identity", width=1) +
+  coord_polar("y", start=0) +
+  theme_void()
+```
+
+> 38.5% of the users have a higher risk of cardiovascular disease due to a average RHR > 70\
+
+
+```{r}
+user_info$rhr_classification <- as.factor(user_info$rhr_classification)
+skim(user_info$rhr_classification)
+```
+
+
+#### Sedentarism vs RHR\
+
+```{r}
+ggplot(user_info, aes(x = SedentaryMinutes, y = rhr)) + geom_point() + geom_smooth(method=lm , color="red", se=FALSE) + theme_classic()
+```
+The graph shows a strong positive correlation between sedentary minutes per day and RHR./
+#### Sleeping time vs rhr\
+
+For clarity, we will exclude averages of less than 3hrs/day.\
+
+```{r}
+ggplot(user_info, aes(x = TotalMinutesAsleep, y = rhr)) + xlim(300, 600) + geom_point()  + geom_smooth(method=lm , color="red", se=FALSE) + theme_classic()
+
+```
+
+There's a correlation, even though very weak, between minutes asleep per day and RHR. /
+
+#### Calories burned vs rhr\
+
+```{r}
+corr_calories_rhr <-  ggplot(user_info, aes(x = Calories, y = rhr)) + geom_point() + geom_smooth(method=lm , color="red", se=FALSE) + theme_classic()
+corr_calories_rhr
+```
+
+We can see a negative correlation between Calories burned during the day and RHR/
+
+#### Phisycal activity vs rhr\
+
+We will remove outliers by filtering users who do more than 90min per day of intense exercises/
+
+```{r}
+corr_active_rhr <- ggplot(user_info, aes(x = VeryActiveMinutes + FairlyActiveMinutes, y = rhr)) + xlim(0, 60) + geom_point() + geom_smooth(method=lm , color="red", se=FALSE) + theme_classic()
+corr_active_rhr
+```
+
+We can see a clear negative correlation between praticants of at least moderate exercise. /
+
+#### Steps per day and RHR\
+
+```{r}
+corr_steps_rhr <- ggplot(user_info, aes(x = TotalSteps, y = rhr)) + geom_point() + geom_smooth(method=lm , color="red", se=FALSE) + theme_classic()
+corr_steps_rhr
+```
+
+As expected given the previous results, the amount of steps taken per day has a high negative correlation with RHR. /
+
+#### Viewing stats by group\
+```{r}
+ggplot(data = user_info, aes(x = rhr_classification, y = TotalSteps, fill = rhr_classification)) + geom_bar(stat = "summary", fun = "mean", width = 0.2) + theme_classic()
+```
+
+As expected users 'at risk' take 2000 less steps than recommended by the WHO, and 'normal' risk users are a little above average.\
+
+
+```{r}
+ggplot(data = user_info, aes(x = rhr_classification, y = FairlyActiveMinutes + VeryActiveMinutes, fill = rhr_classification)) + geom_bar(stat = "summary", fun = "mean", width = 0.2) + theme_classic()
+```
+And also as expected, taking into account the WHO directives, people 'at risk' do less than 2/3 of recommended time of intense physical activities(30min/day), while users in 'normal' RHRs average at least 50% more.\
+
+```{r}
+ggplot(data = user_info, aes(x = rhr_classification, y = TotalMinutesAsleep, fill = rhr_classification)) + geom_bar(stat = "summary", fun = "mean", width = 0.2) + theme_classic()
+```
+
+As we saw earlier, the correlation between Sleep and RHR is week, and the difference between the averages is 1:30hrs per day. But notably people 'at risk' of hearth diseases sleep less than the recommended by the specialists (at least 420 minutes or 7 hours). While users with 'normal' RHR in average are around this target. \
+
+### In summary
+
+> People who regularly exercise more than 30min/day, take more than 8000 steps and sleep at least 7hrs/per night are at less risk of cardiac diseases than those who do not. This is using RHR as a metric, since a lower average is related to a better health of the hearth and a lower chance of cardiac arrests and such. 
+
+---
+
+## Conclusion
+
+### Business insights
+
+* 38.5% of the users have a higher risk of cardiovascular disease due to a average RHR > 70. This type of disease if the biggest cause of death for adults up to 49 years. ['(Source)'](ourworldindata.org/causes-of-death)
+
+* People who regularly exercise more than 30min/day, take more than 8000 steps and sleep at least 7hrs/per night are at less risk of cardiac diseases than those who do not. This is because these factors can lower their RHR. 
+
+* It was not possible to derive any conclusions about quality of sleep due to the lack of relevant information. ['According to the CDC'](https://www.cdc.gov/media/releases/2016/p0215-enough-sleep.html) 1/3 of adults suffer from not enough sleep. This is very crucial, since bad quality sleep can affect not only cardiovascular health but can cause: obesity, diabetes, strokes and other conditions. 
+
+### Recomendations
+
+* Add as a metric for the users their RHR. 
+* If they are at risk, prompt them to complete at least 30 minutes of active exercise or 8000 steps trough the day.
+* If users are classified with 'abnormal' RHR, recommend visiting a doctor.
+* Improve sleep metrics, 1/3 of adults suffer from sleep deprivation. A sleep companion can be even spun-off as a premium feature for the Bellabeat app. 
