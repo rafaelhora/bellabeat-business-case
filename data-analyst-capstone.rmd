@@ -3,11 +3,11 @@ title: 'Case Study: Bellabeat Fitness App'
 author: "Rafael Fraga - rafaelfraga.github.io"
 code_download: yes
 output:
+  html_notebook:
+    theme: simplex
   html_document: 
     df_print: default
     toc: yes
-  html_notebook:
-    theme: simplex
 ---
 
 ## Business Scenario
